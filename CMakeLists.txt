@@ -80,3 +80,52 @@ ENABLE_TESTING()
 
 INCLUDE_DIRECTORIES(test src)
 ADD_SUBDIRECTORY(test)
+
+# Offer the user the choice of overriding the installation directories
+IF(WIN32)
+  SET(DEF_INSTALL_CMAKE_DIR cmake)
+ELSE()
+  SET(DEF_INSTALL_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/${CMAKE_PROJECT_NAME})
+ENDIF()
+SET(INSTALL_CMAKE_DIR ${DEF_INSTALL_CMAKE_DIR} CACHE PATH
+  "Installation directory for CMake files")
+
+# Add all targets to the build-tree export set
+EXPORT(
+  EXPORT ${CMAKE_PROJECT_NAME}Targets
+  FILE "${PROJECT_BINARY_DIR}/${CMAKE_PROJECT_NAME}Targets.cmake"
+)
+
+# Export the package for use from the build-tree
+# (this registers the build-tree with a global CMake-registry)
+EXPORT(PACKAGE ${CMAKE_PROJECT_NAME})
+
+# Create pahoConfig.cmake and pahoConfigVersion.cmake
+INCLUDE(CMakePackageConfigHelpers)
+
+CONFIGURE_PACKAGE_CONFIG_FILE(
+  ${CMAKE_PROJECT_NAME}Config.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}Config.cmake
+  INSTALL_DESTINATION "${INSTALL_CMAKE_DIR}"
+  PATH_VARS CMAKE_INSTALL_BINDIR CMAKE_INSTALL_INCLUDEDIR CMAKE_INSTALL_LIBDIR INSTALL_CMAKE_DIR
+)
+WRITE_BASIC_PACKAGE_VERSION_FILE(
+  ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}ConfigVersion.cmake
+  VERSION ${CLIENT_VERSION}
+  COMPATIBILITY SameMajorVersion
+)
+
+# Install the pahoConfig.cmake and pahoConfigVersion.cmake
+INSTALL(
+  FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}Config.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}ConfigVersion.cmake
+  DESTINATION "${INSTALL_CMAKE_DIR}"
+  COMPONENT Development
+)
+
+# Install the export set for use with the install-tree
+install(EXPORT ${CMAKE_PROJECT_NAME}Targets
+    DESTINATION "${INSTALL_CMAKE_DIR}"
+    COMPONENT Development
+)
