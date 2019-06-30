@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2009, 2018 IBM Corp.
+ * Copyright (c) 2009, 2019 IBM Corp.
  *
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
@@ -521,6 +521,9 @@ int SSLSocket_createContext(networkHandles* net, MQTTClient_SSLOptions* opts)
 	FUNC_ENTRY;
 	if (net->ctx == NULL)
 	{
+#if (OPENSSL_VERSION_NUMBER >= 0x10100000L)
+		net->ctx = SSL_CTX_new(TLS_client_method());
+#else
 		int sslVersion = MQTT_SSL_VERSION_DEFAULT;
 		if (opts->struct_version >= 1) sslVersion = opts->sslVersion;
 /* SSL_OP_NO_TLSv1_1 is defined in ssl.h if the library version supports TLSv1.1.
@@ -550,6 +553,7 @@ int SSLSocket_createContext(networkHandles* net, MQTTClient_SSLOptions* opts)
 		default:
 			break;
 		}
+#endif
 		if (net->ctx == NULL)
 		{
 			if (opts->struct_version >= 3)
@@ -594,9 +598,9 @@ int SSLSocket_createContext(networkHandles* net, MQTTClient_SSLOptions* opts)
 		}
 	}
 
-	if (opts->trustStore)
+	if (opts->trustStore || opts->CApath)
 	{
-		if ((rc = SSL_CTX_load_verify_locations(net->ctx, opts->trustStore, NULL)) != 1)
+		if ((rc = SSL_CTX_load_verify_locations(net->ctx, opts->trustStore, opts->CApath)) != 1)
 		{
 			if (opts->struct_version >= 3)
 				SSLSocket_error("SSL_CTX_load_verify_locations", NULL, net->socket, rc, opts->ssl_error_cb, opts->ssl_error_context);
@@ -717,15 +721,34 @@ int SSLSocket_connect(SSL* ssl, int sock, const char* hostname, int verify, int 
 		hostname_len = MQTTProtocol_addressPort(hostname, &port, NULL);
 
 		rc = X509_check_host(cert, hostname, hostname_len, 0, &peername);
-		Log(TRACE_MIN, -1, "rc from X509_check_host is %d", rc);
-		Log(TRACE_MIN, -1, "peername from X509_check_host is %s", peername);
-		
+		if (rc == 1)
+			Log(TRACE_PROTOCOL, -1, "peername from X509_check_host is %s", peername);
+		else
+			Log(TRACE_PROTOCOL, -1, "X509_check_host for hostname %.*s failed, rc %d",
+					hostname_len, hostname, rc);
+
 		if (peername != NULL)
 			OPENSSL_free(peername);
 
-		// 0 == fail, -1 == SSL internal error
-		if (rc == 0 || rc == -1)
-			rc = SSL_FATAL;
+		// 0 == fail, -1 == SSL internal error, -2 == mailformed input
+		if (rc == 0 || rc == -1 || rc == -2)
+		{
+			char* ip_addr = malloc(hostname_len + 1);
+			// cannot use = strndup(hostname, hostname_len); here because of custom Heap
+			if (ip_addr)
+			{
+				strncpy(ip_addr, hostname, hostname_len);
+				ip_addr[hostname_len] = '\0';
+
+				rc = X509_check_ip_asc(cert, ip_addr, 0);
+				Log(TRACE_MIN, -1, "rc from X509_check_ip_asc is %d", rc);
+
+				free(ip_addr);
+			}
+
+			if (rc == 0 || rc == -1 || rc == -2)
+				rc = SSL_FATAL;
+		}
 
 		if (cert)
 			X509_free(cert);
