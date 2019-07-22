@@ -219,6 +219,26 @@ START_TIME_TYPE MQTTAsync_start_clock(void)
 }
 #endif
 
+#if defined(WIN32) || defined(WIN64)
+void MQTTAsync_init_rand(void)
+{
+	START_TIME_TYPE now = MQTTAsync_start_clock();
+	srand(now);
+}
+#elif defined(AIX)
+void MQTTAsync_init_rand(void)
+{
+	START_TIME_TYPE now = MQTTAsync_start_clock();
+	srand(now.tv_nsec);
+}
+#else
+void MQTTAsync_init_rand(void)
+{
+	START_TIME_TYPE now = MQTTAsync_start_clock();
+	srand(now.tv_usec);
+}
+#endif
+
 
 #if defined(WIN32) || defined(WIN64)
 long MQTTAsync_elapsed(DWORD milliseconds)
@@ -248,7 +268,6 @@ long MQTTAsync_elapsed(struct timeval start)
 	return (res.tv_sec)*1000 + (res.tv_usec)/1000;
 }
 #endif
-
 
 typedef struct
 {
@@ -352,6 +371,7 @@ typedef struct MQTTAsync_struct
 	int connectTimeout;
 
 	int currentInterval;
+	int currentIntervalBase;
 	START_TIME_TYPE lastConnectionFailedTime;
 	int retrying;
 	int reconnectNow;
@@ -424,6 +444,45 @@ void MQTTAsync_sleep(long milliseconds)
 	usleep(milliseconds*1000);
 #endif
 	FUNC_EXIT;
+}
+
+
+// Add random amount of jitter for exponential backoff on retry
+// Jitter value will be +/- 20% of "base" interval, including max interval
+// https://www.awsarchitectureblog.com/2015/03/backoff.html
+// http://ee.lbl.gov/papers/sync_94.pdf
+int MQTTAsync_randomJitter(int currentIntervalBase, int minInterval, int maxInterval)
+{
+	int max_sleep = min(maxInterval, currentIntervalBase) * 1.2; // (e.g. 72 if base > 60)
+	int min_sleep = max(minInterval, currentIntervalBase) / 1.2; // (e.g. 48 if base > 60)
+
+	if (min_sleep >= max_sleep) // shouldn't happen, but just incase
+	{
+		return min_sleep;
+	}
+
+	// random_between(min_sleep, max_sleep)
+	// http://stackoverflow.com/questions/2509679/how-to-generate-a-random-number-from-within-a-range
+	int r;
+	int range = max_sleep - min_sleep + 1;
+	if (range > RAND_MAX)
+	{
+		range = RAND_MAX;
+	}
+
+	int buckets = RAND_MAX / range;
+	int limit = buckets * range;
+
+	/* Create equal size buckets all in a row, then fire randomly towards
+	 * the buckets until you land in one of them. All buckets are equally
+	 * likely. If you land off the end of the line of buckets, try again. */
+	do
+	{
+		r = rand();
+	} while (r >= limit);
+
+	int randResult = r / buckets;
+	return min_sleep + randResult;
 }
 
 
@@ -508,7 +567,8 @@ int MQTTAsync_createWithOptions(MQTTAsync* handle, const char* serverURI, const 
 		}
 	}
 
-	if (options && (strncmp(options->struct_id, "MQCO", 4) != 0 || options->struct_version != 0))
+	if (options && (strncmp(options->struct_id, "MQCO", 4) != 0 ||
+					options->struct_version < 0 || options->struct_version > 1))
 	{
 		rc = MQTTASYNC_BAD_STRUCTURE;
 		goto exit;
@@ -571,7 +631,8 @@ int MQTTAsync_createWithOptions(MQTTAsync* handle, const char* serverURI, const 
 	{
 		m->createOptions = malloc(sizeof(MQTTAsync_createOptions));
 		memcpy(m->createOptions, options, sizeof(MQTTAsync_createOptions));
-		m->c->MQTTVersion = options->MQTTVersion;
+		if (options->struct_version > 0)
+			m->c->MQTTVersion = options->MQTTVersion;
 	}
 
 #if !defined(NO_PERSISTENCE)
@@ -598,6 +659,8 @@ exit:
 int MQTTAsync_create(MQTTAsync* handle, const char* serverURI, const char* clientId,
 		int persistence_type, void* persistence_context)
 {
+	MQTTAsync_init_rand();
+
 	return MQTTAsync_createWithOptions(handle, serverURI, clientId, persistence_type,
 		persistence_context, NULL);
 }
@@ -778,12 +841,12 @@ static int MQTTAsync_persistCommand(MQTTAsync_queuedCommand* qcmd)
 			Log(LOG_ERROR, 0, "Error persisting command, rc %d", rc);
 		qcmd->seqno = aclient->command_seqno;
 	}
+	if (props_allocated > 0)
+		free(bufs[props_allocated]);
 	if (lens)
 		free(lens);
 	if (bufs)
 		free(bufs);
-	if (props_allocated > 0)
-		free(bufs[props_allocated]);
 	FUNC_EXIT_RC(rc);
 	return rc;
 }
@@ -1029,12 +1092,15 @@ static void MQTTAsync_startConnectRetry(MQTTAsyncs* m)
 	{
 		m->lastConnectionFailedTime = MQTTAsync_start_clock();
 		if (m->retrying)
-			m->currentInterval = min(m->currentInterval * 2, m->maxRetryInterval);
+		{
+			m->currentIntervalBase = min(m->currentIntervalBase * 2, m->maxRetryInterval);
+		}
 		else
 		{
-			m->currentInterval = m->minRetryInterval;
+			m->currentIntervalBase = m->minRetryInterval;
 			m->retrying = 1;
 		}
+		m->currentInterval = MQTTAsync_randomJitter(m->currentIntervalBase, m->minRetryInterval, m->maxRetryInterval);
 	}
 }
 
@@ -1052,12 +1118,13 @@ int MQTTAsync_reconnect(MQTTAsync handle)
 		if (m->shouldBeConnected)
 		{
 			m->reconnectNow = 1;
-	  		if (m->retrying == 0)
-	  		{
-	  			m->currentInterval = m->minRetryInterval;
-	  			m->retrying = 1;
-	  		}
-	  		rc = MQTTASYNC_SUCCESS;
+			if (m->retrying == 0)
+			{
+				m->currentIntervalBase = m->minRetryInterval;
+				m->currentInterval = m->minRetryInterval;
+				m->retrying = 1;
+			}
+			rc = MQTTASYNC_SUCCESS;
 		}
 	}
 	else
@@ -1069,9 +1136,9 @@ int MQTTAsync_reconnect(MQTTAsync handle)
 		conn->command = m->connect;
 		/* make sure that the version attempts are restarted */
 		if (m->c->MQTTVersion == MQTTVERSION_DEFAULT)
-	  		conn->command.details.conn.MQTTVersion = 0;
+			conn->command.details.conn.MQTTVersion = 0;
 		MQTTAsync_addCommand(conn, sizeof(m->connect));
-	  	rc = MQTTASYNC_SUCCESS;
+		rc = MQTTASYNC_SUCCESS;
 	}
 
 	MQTTAsync_unlock_mutex(mqttasync_mutex);
