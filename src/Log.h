@@ -18,6 +18,8 @@
 #if !defined(LOG_H)
 #define LOG_H
 
+#include <stdint.h>
+
 /*BE
 map LOG_LEVELS
 {
@@ -76,7 +78,7 @@ int Log_initialize(Log_nameValue*);
 void Log_terminate(void);
 
 void Log(enum LOG_LEVELS, int, const char *, ...);
-void Log_stackTrace(enum LOG_LEVELS, int, int, int, const char*, int, int*);
+void Log_stackTrace(enum LOG_LEVELS, int, intptr_t, int, const char*, int, int*);
 
 typedef void Log_traceCallback(enum LOG_LEVELS level, const char *message);
 void Log_setTraceCallback(Log_traceCallback* callback);

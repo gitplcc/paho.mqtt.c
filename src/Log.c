@@ -82,7 +82,7 @@ typedef struct
 #endif
 	int sametime_count;
 	int number;
-	int thread_id;
+	intptr_t thread_id;
 	int depth;
 	char name[MAX_FUNCTION_NAME_LENGTH + 1];
 	int line;
@@ -432,7 +432,7 @@ void Log(enum LOG_LEVELS log_level, int msgno, const char *format, ...)
  * @param aFormat the printf format string to be used if the message id does not exist
  * @param ... the printf inserts
  */
-void Log_stackTrace(enum LOG_LEVELS log_level, int msgno, int thread_id, int current_depth, const char* name, int line, int* rc)
+void Log_stackTrace(enum LOG_LEVELS log_level, int msgno, intptr_t thread_id, int current_depth, const char* name, int line, int* rc)
 {
 	traceEntry *cur_entry = NULL;
 
