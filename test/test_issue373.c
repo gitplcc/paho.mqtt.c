@@ -2,11 +2,11 @@
  * Copyright (c) 2012, 2017 IBM Corp.
  *
  * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
+ * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
  * The Eclipse Public License is available at
- *    http://www.eclipse.org/legal/epl-v10.html
+ *    https://www.eclipse.org/legal/epl-2.0/
  * and the Eclipse Distribution License is available at
  *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
@@ -109,22 +109,33 @@ void MyLog(int LOGA_level, char* format, ...)
 {
 	static char msg_buf[256];
 	va_list args;
+#if defined(_WIN32) || defined(_WINDOWS)
 	struct timeb ts;
-
+#else
+	struct timeval ts;
+#endif
 	struct tm *timeinfo;
 
 	if (LOGA_level == LOGA_DEBUG && options.verbose == 0)
-		return;
+	  return;
 
+#if defined(_WIN32) || defined(_WINDOWS)
 	ftime(&ts);
 	timeinfo = localtime(&ts.time);
+#else
+	gettimeofday(&ts, NULL);
+	timeinfo = localtime(&ts.tv_sec);
+#endif
 	strftime(msg_buf, 80, "%Y%m%d %H%M%S", timeinfo);
 
+#if defined(_WIN32) || defined(_WINDOWS)
 	sprintf(&msg_buf[strlen(msg_buf)], ".%.3hu ", ts.millitm);
+#else
+	sprintf(&msg_buf[strlen(msg_buf)], ".%.3lu ", ts.tv_usec / 1000L);
+#endif
 
 	va_start(args, format);
-	vsnprintf(&msg_buf[strlen(msg_buf)], sizeof(msg_buf) - strlen(msg_buf),
-		  format, args);
+	vsnprintf(&msg_buf[strlen(msg_buf)], sizeof(msg_buf) - strlen(msg_buf), format, args);
 	va_end(args);
 
 	printf("%s\n", msg_buf);
@@ -133,7 +144,7 @@ void MyLog(int LOGA_level, char* format, ...)
 
 void MySleep(long milliseconds)
 {
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(_WIN64)
 	Sleep(milliseconds);
 #else
 	usleep(milliseconds*1000);

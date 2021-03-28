@@ -1,12 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2012, 2018 IBM Corp.
+ * Copyright (c) 2012, 2020 IBM Corp.
  *
  * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
+ * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
  * The Eclipse Public License is available at
- *   http://www.eclipse.org/legal/epl-v10.html
+ *   https://www.eclipse.org/legal/epl-2.0/
  * and the Eclipse Distribution License is available at
  *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
@@ -24,7 +24,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#if defined(WIN32)
+#if defined(_WIN32)
 #define sleep Sleep
 #else
 #include <sys/time.h>
@@ -46,8 +46,9 @@ struct pubsub_opts opts =
 	NULL, NULL, 1, 0, 0, /* message options */
 	MQTTVERSION_DEFAULT, NULL, "paho-cs-pub", 0, 0, NULL, NULL, "localhost", "1883", NULL, 10, /* MQTT options */
 	NULL, NULL, 0, 0, /* will options */
-	0, NULL, NULL, NULL, NULL, NULL, NULL, /* TLS options */
+	0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, /* TLS options */
 	0, {NULL, NULL}, /* MQTT V5 options */
+	NULL, NULL, /* HTTP and HTTPS proxies */
 };
 
 
@@ -71,6 +72,8 @@ int myconnect(MQTTClient* client)
 	conn_opts.username = opts.username;
 	conn_opts.password = opts.password;
 	conn_opts.MQTTVersion = opts.MQTTVersion;
+	conn_opts.httpProxy = opts.http_proxy;
+	conn_opts.httpsProxy = opts.https_proxy;
 
 	if (opts.will_topic) 	/* will options */
 	{
@@ -106,6 +109,7 @@ int myconnect(MQTTClient* client)
 		conn_opts.cleanstart = 1;
 		response = MQTTClient_connect5(client, &conn_opts, &props, &willProps);
 		rc = response.reasonCode;
+		MQTTResponse_free(response);
 	}
 	else
 	{
@@ -140,11 +144,12 @@ int main(int argc, char** argv)
 	MQTTClient client;
 	MQTTProperties pub_props = MQTTProperties_initializer;
 	MQTTClient_createOptions createOpts = MQTTClient_createOptions_initializer;
+	MQTTClient_deliveryToken last_token;
 	char* buffer = NULL;
 	int rc = 0;
 	char* url;
 	const char* version = NULL;
-#if !defined(WIN32)
+#if !defined(_WIN32)
     struct sigaction sa;
 #endif
 	const char* program_name = "paho_cs_pub";
@@ -183,7 +188,7 @@ int main(int argc, char** argv)
 		exit(EXIT_FAILURE);
 	}
 
-#if defined(WIN32)
+#if defined(_WIN32)
 	signal(SIGINT, cfinish);
 	signal(SIGTERM, cfinish);
 #else
@@ -269,11 +274,11 @@ int main(int argc, char** argv)
 		{
 			MQTTResponse response = MQTTResponse_initializer;
 
-			response = MQTTClient_publish5(client, opts.topic, data_len, buffer, opts.qos, opts.retained, &pub_props, NULL);
+			response = MQTTClient_publish5(client, opts.topic, data_len, buffer, opts.qos, opts.retained, &pub_props, &last_token);
 			rc = response.reasonCode;
 		}
 		else
-			rc = MQTTClient_publish(client, opts.topic, data_len, buffer, opts.qos, opts.retained, NULL);
+			rc = MQTTClient_publish(client, opts.topic, data_len, buffer, opts.qos, opts.retained, &last_token);
 		if (opts.stdin_lines == 0)
 			break;
 
@@ -284,15 +289,17 @@ int main(int argc, char** argv)
 			{
 				MQTTResponse response = MQTTResponse_initializer;
 
-				response = MQTTClient_publish5(client, opts.topic, data_len, buffer, opts.qos, opts.retained, &pub_props, NULL);
+				response = MQTTClient_publish5(client, opts.topic, data_len, buffer, opts.qos, opts.retained, &pub_props, &last_token);
 				rc = response.reasonCode;
 			}
 			else
-				rc = MQTTClient_publish(client, opts.topic, data_len, buffer, opts.qos, opts.retained, NULL);
+				rc = MQTTClient_publish(client, opts.topic, data_len, buffer, opts.qos, opts.retained, &last_token);
 		}
 		if (opts.qos > 0)
 			MQTTClient_yield();
 	}
+
+	rc = MQTTClient_waitForCompletion(client, last_token, 5000);
 
 exit:
 	if (opts.filename || opts.stdin_lines)

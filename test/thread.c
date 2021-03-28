@@ -1,12 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2009, 2018 IBM Corp.
+ * Copyright (c) 2009, 2020 IBM Corp.
  *
  * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
+ * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
  * The Eclipse Public License is available at
- *    http://www.eclipse.org/legal/epl-v10.html
+ *    https://www.eclipse.org/legal/epl-2.0/
  * and the Eclipse Distribution License is available at
  *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
@@ -90,18 +90,30 @@ void MyLog(int LOGA_level, char* format, ...)
 {
 	static char msg_buf[256];
 	va_list args;
+#if defined(_WIN32) || defined(_WINDOWS)
 	struct timeb ts;
-
+#else
+	struct timeval ts;
+#endif
 	struct tm *timeinfo;
 
 	if (LOGA_level == LOGA_DEBUG && options.verbose == 0)
 	  return;
 
+#if defined(_WIN32) || defined(_WINDOWS)
 	ftime(&ts);
 	timeinfo = localtime(&ts.time);
+#else
+	gettimeofday(&ts, NULL);
+	timeinfo = localtime(&ts.tv_sec);
+#endif
 	strftime(msg_buf, 80, "%Y%m%d %H%M%S", timeinfo);
 
+#if defined(_WIN32) || defined(_WINDOWS)
 	sprintf(&msg_buf[strlen(msg_buf)], ".%.3hu ", ts.millitm);
+#else
+	sprintf(&msg_buf[strlen(msg_buf)], ".%.3lu ", ts.tv_usec / 1000L);
+#endif
 
 	va_start(args, format);
 	vsnprintf(&msg_buf[strlen(msg_buf)], sizeof(msg_buf) - strlen(msg_buf), format, args);
@@ -112,7 +124,7 @@ void MyLog(int LOGA_level, char* format, ...)
 }
 
 
-#if defined(WIN32) || defined(_WINDOWS)
+#if defined(_WIN32) || defined(_WINDOWS)
 #define mysleep(A) Sleep(1000*A)
 #define START_TIME_TYPE DWORD
 static DWORD start_time = 0;
@@ -142,7 +154,7 @@ START_TIME_TYPE start_clock(void)
 #endif
 
 
-#if defined(WIN32)
+#if defined(_WIN32)
 long elapsed(START_TIME_TYPE start_time)
 {
 	return GetTickCount() - start_time;
@@ -245,8 +257,7 @@ int test_sem(struct Options options)
 	int rc = 0, i = 0;
 	START_TIME_TYPE start;
 	long duration;
-	sem_type sem = Thread_create_sem();
-	thread_type thread;
+	sem_type sem = Thread_create_sem(&rc);
 
 	MyLog(LOGA_INFO, "Starting semaphore test");
 	fprintf(xml, "<testcase classname=\"test\" name=\"%s\"", testname);
@@ -294,7 +305,7 @@ int test_sem(struct Options options)
 	assert("duration is 2s", duration >= 1500L, "duration was %ld", duration);
 
 	MyLog(LOGA_DEBUG, "Starting secondary thread");
-	thread = Thread_start(sem_secondary, (void*)sem);
+	Thread_start(sem_secondary, (void*)sem);
 
 	mysleep(2);
 	MyLog(LOGA_DEBUG, "post secondary");
@@ -312,7 +323,7 @@ int test_sem(struct Options options)
 	return failures;
 }
 
-#if !defined(WIN32) && !defined(WIN64)
+#if !defined(_WIN32) && !defined(_WIN64)
 thread_return_type cond_secondary(void* n)
 {
 	int rc = 0;
@@ -347,8 +358,7 @@ int test_cond(struct Options options)
 	int rc = 0, i = 0;
 	START_TIME_TYPE start;
 	long duration;
-	cond_type cond = Thread_create_cond();
-	thread_type thread;
+	cond_type cond = Thread_create_cond(&rc);
 
 	MyLog(LOGA_INFO, "Starting condition variable test");
 	fprintf(xml, "<testcase classname=\"cond\" name=\"%s\"", testname);
@@ -387,7 +397,7 @@ int test_cond(struct Options options)
 	assert("rc 0 from signal cond", rc == 0, "rc was %d", rc);
 
 	MyLog(LOGA_DEBUG, "Starting secondary thread");
-	thread = Thread_start(cond_secondary, (void*)cond);
+	Thread_start(cond_secondary, (void*)cond);
 
 	MyLog(LOGA_DEBUG, "wait for secondary thread to enter second wait");
 	mysleep(2);
@@ -435,8 +445,7 @@ int test_mutex(struct Options options)
 {
 	char* testname = "test_mutex";
 	int rc = 0;
-	mutex_type mutex = Thread_create_mutex();
-	thread_type thread;
+	mutex_type mutex = Thread_create_mutex(&rc);
 	START_TIME_TYPE start;
 	long duration;
 
@@ -453,7 +462,7 @@ int test_mutex(struct Options options)
 	assert("duration is very low", duration < 5L, "duration was %ld", duration);
 
 	MyLog(LOGA_DEBUG, "Starting secondary thread");
-	thread = Thread_start(mutex_secondary, (void*)mutex);
+	Thread_start(mutex_secondary, (void*)mutex);
 
 	mysleep(2);
 	rc = Thread_unlock_mutex(mutex); /* let background thread have it */
@@ -485,7 +494,7 @@ int main(int argc, char** argv)
  	int (*tests[])() = {NULL,
  		test_mutex,
  		test_sem,
-#if !defined(WIN32) && !defined(WIN64)
+#if !defined(_WIN32) && !defined(_WIN64)
 		test_cond
 #endif
  	}; /* indexed starting from 1 */

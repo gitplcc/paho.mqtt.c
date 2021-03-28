@@ -1,12 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2011, 2014 IBM Corp.
+ * Copyright (c) 2011, 2020 IBM Corp. and others
  *
  * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
+ * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
  * The Eclipse Public License is available at
- *    http://www.eclipse.org/legal/epl-v10.html
+ *    https://www.eclipse.org/legal/epl-2.0/
  * and the Eclipse Distribution License is available at
  *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
@@ -21,8 +21,8 @@
  */
 
 #include "MQTTAsync.h"
-#define NO_HEAP_TRACKING
-#include "Heap.h"
+/*#define NO_HEAP_TRACKING 1
+#include "Heap.h"*/
 #include <string.h>
 #include <stdlib.h>
 
@@ -173,24 +173,34 @@ void getopts(int argc, char** argv)
 #include <stdarg.h>
 #include <time.h>
 #include <sys/timeb.h>
-void MyLog(int log_level, char* format, ...)
+void MyLog(int LOGA_level, char* format, ...)
 {
 	static char msg_buf[256];
 	va_list args;
+#if defined(_WIN32) || defined(_WINDOWS)
 	struct timeb ts;
+#else
+	struct timeval ts;
+#endif
+	struct tm timeinfo;
 
-	struct tm *timeinfo;
-
-	if (log_level == LOGA_DEBUG && opts.verbose == 0)
+	if (LOGA_level == LOGA_DEBUG && opts.verbose == 0)
 	  return;
 
+#if defined(_WIN32) || defined(_WINDOWS)
 	ftime(&ts);
-	timeinfo = localtime(&ts.time);
-	strftime(msg_buf, 80, "%Y%m%d %H%M%S", timeinfo);
+	localtime_s(&timeinfo, &ts.time);
+#else
+	gettimeofday(&ts, NULL);
+	localtime_r(&ts.tv_sec, &timeinfo);
+#endif
+	strftime(msg_buf, 80, "%Y%m%d %H%M%S", &timeinfo);
 
+#if defined(_WIN32) || defined(_WINDOWS)
 	sprintf(&msg_buf[strlen(msg_buf)], ".%.3hu ", ts.millitm);
-
-	sprintf(&msg_buf[strlen(msg_buf)], "%s ", opts.clientid);
+#else
+	sprintf(&msg_buf[strlen(msg_buf)], ".%.3lu ", ts.tv_usec / 1000L);
+#endif
 
 	va_start(args, format);
 	vsnprintf(&msg_buf[strlen(msg_buf)], sizeof(msg_buf) - strlen(msg_buf), format, args);
@@ -202,14 +212,14 @@ void MyLog(int log_level, char* format, ...)
 
 void MySleep(long milliseconds)
 {
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(_WIN64)
 	Sleep(milliseconds);
 #else
 	usleep(milliseconds*1000);
 #endif
 }
 
-#if defined(WIN32) || defined(_WINDOWS)
+#if defined(_WIN32) || defined(_WINDOWS)
 #define START_TIME_TYPE DWORD
 static DWORD start_time = 0;
 START_TIME_TYPE start_clock(void)
@@ -235,7 +245,7 @@ START_TIME_TYPE start_clock(void)
 }
 #endif
 
-#if defined(WIN32)
+#if defined(_WIN32)
 long elapsed(START_TIME_TYPE start_time)
 {
 	return GetTickCount() - start_time;
@@ -514,8 +524,8 @@ int recreateReconnect(void)
 
 		MQTTAsync_destroy(&client); /* destroy the client object so that we force persistence to be read on recreate */
 #if !defined(_WINDOWS)
-		heap_info* mqtt_mem = 0;
-		/*mqtt_mem = Heap_get_info();
+		/*heap_info* mqtt_mem = 0;
+		mqtt_mem = Heap_get_info();
 		MyLog(LOGA_INFO, "MQTT mem current %ld, max %ld",mqtt_mem->current_size,mqtt_mem->max_size);
 		if (mqtt_mem->current_size > 20)
 		  HeapScan(5); */
@@ -962,7 +972,7 @@ int main(int argc, char** argv)
 	static char topic_buf[200];
 	static char clientid[40];
 
-#if !defined(WIN32)
+#if !defined(_WIN32)
 	signal(SIGPIPE, SIG_IGN);
 #endif
 

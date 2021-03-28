@@ -1,12 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2009, 2018 IBM Corp.
+ * Copyright (c) 2009, 2020 IBM Corp.
  *
  * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
+ * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
  * The Eclipse Public License is available at
- *    http://www.eclipse.org/legal/epl-v10.html
+ *    https://www.eclipse.org/legal/epl-2.0/
  * and the Eclipse Distribution License is available at
  *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
@@ -152,18 +152,30 @@ void MyLog(int LOGA_level, char* format, ...)
 {
 	static char msg_buf[256];
 	va_list args;
+#if defined(_WIN32) || defined(_WINDOWS)
 	struct timeb ts;
-
-	struct tm *timeinfo;
+#else
+	struct timeval ts;
+#endif
+	struct tm timeinfo;
 
 	if (LOGA_level == LOGA_DEBUG && options.verbose == 0)
 	  return;
 
+#if defined(_WIN32) || defined(_WINDOWS)
 	ftime(&ts);
-	timeinfo = localtime(&ts.time);
-	strftime(msg_buf, 80, "%Y%m%d %H%M%S", timeinfo);
+	localtime_s(&timeinfo, &ts.time);
+#else
+	gettimeofday(&ts, NULL);
+	localtime_r(&ts.tv_sec, &timeinfo);
+#endif
+	strftime(msg_buf, 80, "%Y%m%d %H%M%S", &timeinfo);
 
+#if defined(_WIN32) || defined(_WINDOWS)
 	sprintf(&msg_buf[strlen(msg_buf)], ".%.3hu ", ts.millitm);
+#else
+	sprintf(&msg_buf[strlen(msg_buf)], ".%.3lu ", ts.tv_usec / 1000L);
+#endif
 
 	va_start(args, format);
 	vsnprintf(&msg_buf[strlen(msg_buf)], sizeof(msg_buf) - strlen(msg_buf), format, args);
@@ -174,7 +186,7 @@ void MyLog(int LOGA_level, char* format, ...)
 }
 
 
-#if defined(WIN32) || defined(_WINDOWS)
+#if defined(_WIN32) || defined(_WINDOWS)
 #define mqsleep(A) Sleep(1000*A)
 #define START_TIME_TYPE DWORD
 static DWORD start_time = 0;
@@ -204,7 +216,7 @@ START_TIME_TYPE start_clock(void)
 #endif
 
 
-#if defined(WIN32)
+#if defined(_WIN32)
 long elapsed(START_TIME_TYPE start_time)
 {
 	return GetTickCount() - start_time;
@@ -340,14 +352,14 @@ void test1_sendAndReceive(MQTTClient* c, int qos, char* test_topic)
 			MQTTClient_freeMessage(&m);
 		}
 		else
-			printf("No message received within timeout period\n");
+			MyLog(LOGA_INFO, "No message received within timeout period\n");
 	}
 
 	/* receive any outstanding messages */
 	MQTTClient_receive(c, &topicName, &topicLen, &m, 2000);
 	while (topicName)
 	{
-		printf("Message received on topic %s is %.*s.\n", topicName, m->payloadlen, (char*)(m->payload));
+		MyLog(LOGA_INFO, "Message received on topic %s is %.*s.\n", topicName, m->payloadlen, (char*)(m->payload));
 		MQTTClient_free(topicName);
 		MQTTClient_freeMessage(&m);
 		MQTTClient_receive(c, &topicName, &topicLen, &m, 2000);
@@ -594,7 +606,7 @@ void test2_sendAndReceive(MQTTClient* c, int qos, char* test_topic)
 			response = MQTTClient_publishMessage5(c, test_topic, &test2_pubmsg, &dt);
 		assert("Good rc from publish", response.reasonCode == MQTTCLIENT_SUCCESS, "rc was %d", response.reasonCode);
 
-		#if defined(WIN32)
+		#if defined(_WIN32)
 			Sleep(100);
 		#else
 			usleep(100000L);
@@ -604,7 +616,7 @@ void test2_sendAndReceive(MQTTClient* c, int qos, char* test_topic)
 		while ((test2_arrivedcount < i) && (wait_seconds-- > 0))
 		{
 			MyLog(LOGA_DEBUG, "Arrived %d count %d", test2_arrivedcount, i);
-			#if defined(WIN32)
+			#if defined(_WIN32)
 				Sleep(1000);
 			#else
 				usleep(1000000L);
@@ -623,7 +635,7 @@ void test2_sendAndReceive(MQTTClient* c, int qos, char* test_topic)
 		while ((test2_deliveryCompleted < iterations) && (wait_seconds-- > 0))
 		{
 			MyLog(LOGA_DEBUG, "Delivery Completed %d count %d", test2_deliveryCompleted, i);
-			#if defined(WIN32)
+			#if defined(_WIN32)
 				Sleep(1000);
 			#else
 				usleep(1000000L);
@@ -932,9 +944,9 @@ int test4_run(int qos, int start_mqtt_version, int restore_mqtt_version)
 
 		while (tokens[i] != -1)
 			MyLog(LOGA_DEBUG, "Pending delivery token %d", tokens[i++]);
-		MQTTClient_free(tokens);
 		assert1("no of tokens should be count", i == count, "no of tokens %d count %d", i, count);
 		mytoken = tokens[0];
+		MQTTClient_free(tokens);
 	}
 	MQTTProperties_free(&props);
 	MQTTProperties_free(&pub_props);
@@ -1140,13 +1152,13 @@ volatile int test6_connection_lost_called = 0;
 void test6_connectionLost(void* context, char* cause)
 {
 	MQTTClient c = (MQTTClient)context;
-	printf("%s -> Callback: connection lost\n", (c == test6_c1) ? "Client-1" : "Client-2");
+	MyLog(LOGA_INFO, "%s -> Callback: connection lost", (c == test6_c1) ? "Client-1" : "Client-2");
 	test6_connection_lost_called = 1;
 }
 
 void test6_deliveryComplete(void* context, MQTTClient_deliveryToken token)
 {
-	printf("Client-2 -> Callback: publish complete for token %d\n", token);
+	MyLog(LOGA_DEBUG, "Client-2 -> Callback: publish complete for token %d", token);
 }
 
 char* test6_will_topic = "C Test 2: will topic";
@@ -1155,7 +1167,7 @@ char* test6_will_message = "will message from Client-1";
 int test6_messageArrived(void* context, char* topicName, int topicLen, MQTTClient_message* m)
 {
 	MQTTClient c = (MQTTClient)context;
-	printf("%s -> Callback: message received on topic '%s' is '%.*s'.\n",
+	MyLog(LOGA_INFO, "%s -> Callback: message received on topic '%s' is '%.*s'",
 			 (c == test6_c1) ? "Client-1" : "Client-2", topicName, m->payloadlen, (char*)(m->payload));
 	if (c == test6_c2 && strcmp(topicName, test6_will_topic) == 0 && memcmp(m->payload, test6_will_message, m->payloadlen) == 0)
 		test6_will_message_arrived = 1;
@@ -1243,7 +1255,7 @@ int test6(struct Options options)
 	count = 0;
 	while (++count < 40)
 	{
-		#if defined(WIN32)
+		#if defined(_WIN32)
 			Sleep(1000L);
 		#else
 			sleep(1);
@@ -1359,7 +1371,7 @@ int test6a(struct Options options)
 	count = 0;
 	while (++count < 40)
 	{
-		#if defined(WIN32)
+		#if defined(_WIN32)
 			Sleep(1000L);
 		#else
 			sleep(1);

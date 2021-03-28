@@ -1,12 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2009, 2019 IBM Corp.
+ * Copyright (c) 2009, 2020 IBM Corp.
  *
  * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
+ * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
  * The Eclipse Public License is available at
- *    http://www.eclipse.org/legal/epl-v10.html
+ *    https://www.eclipse.org/legal/epl-2.0/
  * and the Eclipse Distribution License is available at
  *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
@@ -38,7 +38,7 @@
 #undef realloc
 #undef free
 
-#if !defined(WIN32) && !defined(WIN64)
+#if !defined(_WIN32) && !defined(_WIN64)
 #include <errno.h>
 #include <unistd.h>
 #include <sys/time.h>
@@ -55,11 +55,10 @@
  * Start a new thread
  * @param fn the function to run, must be of the correct signature
  * @param parameter pointer to the function parameter, can be NULL
- * @return the new thread
  */
-thread_type Thread_start(thread_fn fn, void* parameter)
+void Thread_start(thread_fn fn, void* parameter)
 {
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(_WIN64)
 	thread_type thread = NULL;
 #else
 	thread_type thread = 0;
@@ -67,8 +66,9 @@ thread_type Thread_start(thread_fn fn, void* parameter)
 #endif
 
 	FUNC_ENTRY;
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(_WIN64)
 	thread = CreateThread(NULL, 0, fn, parameter, 0, NULL);
+    CloseHandle(thread);
 #else
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
@@ -77,7 +77,6 @@ thread_type Thread_start(thread_fn fn, void* parameter)
 	pthread_attr_destroy(&attr);
 #endif
 	FUNC_EXIT;
-	return thread;
 }
 
 
@@ -85,21 +84,22 @@ thread_type Thread_start(thread_fn fn, void* parameter)
  * Create a new mutex
  * @return the new mutex
  */
-mutex_type Thread_create_mutex(void)
+mutex_type Thread_create_mutex(int* rc)
 {
 	mutex_type mutex = NULL;
-	int rc = 0;
 
 	FUNC_ENTRY;
-	#if defined(WIN32) || defined(WIN64)
+	*rc = -1;
+	#if defined(_WIN32) || defined(_WIN64)
 		mutex = CreateMutex(NULL, 0, NULL);
 		if (mutex == NULL)
-			rc = GetLastError();
+			*rc = GetLastError();
 	#else
 		mutex = malloc(sizeof(pthread_mutex_t));
-		rc = pthread_mutex_init(mutex, NULL);
+		if (mutex)
+			*rc = pthread_mutex_init(mutex, NULL);
 	#endif
-	FUNC_EXIT_RC(rc);
+	FUNC_EXIT_RC(*rc);
 	return mutex;
 }
 
@@ -113,7 +113,7 @@ int Thread_lock_mutex(mutex_type mutex)
 	int rc = -1;
 
 	/* don't add entry/exit trace points as the stack log uses mutexes - recursion beckons */
-	#if defined(WIN32) || defined(WIN64)
+	#if defined(_WIN32) || defined(_WIN64)
 		/* WaitForSingleObject returns WAIT_OBJECT_0 (0), on success */
 		rc = WaitForSingleObject(mutex, INFINITE);
 	#else
@@ -134,7 +134,7 @@ int Thread_unlock_mutex(mutex_type mutex)
 	int rc = -1;
 
 	/* don't add entry/exit trace points as the stack log uses mutexes - recursion beckons */
-	#if defined(WIN32) || defined(WIN64)
+	#if defined(_WIN32) || defined(_WIN64)
 		/* if ReleaseMutex fails, the return value is 0 */
 		if (ReleaseMutex(mutex) == 0)
 			rc = GetLastError();
@@ -152,18 +152,19 @@ int Thread_unlock_mutex(mutex_type mutex)
  * Destroy a mutex which has already been created
  * @param mutex the mutex
  */
-void Thread_destroy_mutex(mutex_type mutex)
+int Thread_destroy_mutex(mutex_type mutex)
 {
 	int rc = 0;
 
 	FUNC_ENTRY;
-	#if defined(WIN32) || defined(WIN64)
+	#if defined(_WIN32) || defined(_WIN64)
 		rc = CloseHandle(mutex);
 	#else
 		rc = pthread_mutex_destroy(mutex);
 		free(mutex);
 	#endif
 	FUNC_EXIT_RC(rc);
+	return rc;
 }
 
 
@@ -173,7 +174,7 @@ void Thread_destroy_mutex(mutex_type mutex)
  */
 thread_id_type Thread_getid(void)
 {
-	#if defined(WIN32) || defined(WIN64)
+	#if defined(_WIN32) || defined(_WIN64)
 		return GetCurrentThreadId();
 	#else
 		return pthread_self();
@@ -185,13 +186,13 @@ thread_id_type Thread_getid(void)
  * Create a new semaphore
  * @return the new condition variable
  */
-sem_type Thread_create_sem(void)
+sem_type Thread_create_sem(int *rc)
 {
 	sem_type sem = NULL;
-	int rc = 0;
 
 	FUNC_ENTRY;
-	#if defined(WIN32) || defined(WIN64)
+	*rc = -1;
+	#if defined(_WIN32) || defined(_WIN64)
 		sem = CreateEvent(
 		        NULL,               /* default security attributes */
 		        FALSE,              /* manual-reset event? */
@@ -208,12 +209,13 @@ sem_type Thread_create_sem(void)
 #endif
 	#elif defined(OSX)
 		sem = dispatch_semaphore_create(0L);
-		rc = (sem == NULL) ? -1 : 0;
+		*rc = (sem == NULL) ? -1 : 0;
 	#else
 		sem = malloc(sizeof(sem_t));
-		rc = sem_init(sem, 0, 0);
+		if (sem)
+			*rc = sem_init(sem, 0, 0);
 	#endif
-	FUNC_EXIT_RC(rc);
+	FUNC_EXIT_RC(*rc);
 	return sem;
 }
 
@@ -230,7 +232,7 @@ int Thread_wait_sem(sem_type sem, int timeout)
  * so I've used trywait in a loop instead. Ian Craggs 23/7/2010
  */
 	int rc = -1;
-#if !defined(WIN32) && !defined(WIN64) && !defined(OSX)
+#if !defined(_WIN32) && !defined(_WIN64) && !defined(OSX)
 #define USE_TRYWAIT
 #if defined(USE_TRYWAIT)
 	int i = 0;
@@ -242,7 +244,7 @@ int Thread_wait_sem(sem_type sem, int timeout)
 #endif
 
 	FUNC_ENTRY;
-	#if defined(WIN32) || defined(WIN64)
+	#if defined(_WIN32) || defined(_WIN64)
 		/* returns 0 (WAIT_OBJECT_0) on success, non-zero (WAIT_TIMEOUT) if timeout occurred */
 		rc = WaitForSingleObject(sem, timeout < 0 ? 0 : timeout);
 		if (rc == WAIT_TIMEOUT)
@@ -288,7 +290,7 @@ int Thread_wait_sem(sem_type sem, int timeout)
  */
 int Thread_check_sem(sem_type sem)
 {
-#if defined(WIN32) || defined(WIN64)
+#if defined(_WIN32) || defined(_WIN64)
 	/* if the return value is not 0, the semaphore will not have been decremented */
 	return WaitForSingleObject(sem, 0) == WAIT_OBJECT_0;
 #elif defined(OSX)
@@ -312,7 +314,7 @@ int Thread_post_sem(sem_type sem)
 	int rc = 0;
 
 	FUNC_ENTRY;
-	#if defined(WIN32) || defined(WIN64)
+	#if defined(_WIN32) || defined(_WIN64)
 		if (SetEvent(sem) == 0)
 			rc = GetLastError();
 	#elif defined(OSX)
@@ -320,12 +322,14 @@ int Thread_post_sem(sem_type sem)
 	#else
 		int val;
 		int rc1 = sem_getvalue(sem, &val);
-		if (val == 0 && sem_post(sem) == -1)
+		if (rc1 != 0)
+			rc = errno;
+		else if (val == 0 && sem_post(sem) == -1)
 			rc = errno;
 	#endif
 
  	FUNC_EXIT_RC(rc);
-  return rc;
+ 	return rc;
 }
 
 
@@ -338,9 +342,9 @@ int Thread_destroy_sem(sem_type sem)
 	int rc = 0;
 
 	FUNC_ENTRY;
-	#if defined(WIN32) || defined(WIN64)
+	#if defined(_WIN32) || defined(_WIN64)
 		rc = CloseHandle(sem);
-  #elif defined(OSX)
+	#elif defined(OSX)
 	  dispatch_release(sem);
 	#else
 		rc = sem_destroy(sem);
@@ -351,19 +355,19 @@ int Thread_destroy_sem(sem_type sem)
 }
 
 
-#if !defined(WIN32) && !defined(WIN64)
+#if !defined(_WIN32) && !defined(_WIN64)
 
 /**
  * Create a new condition variable
  * @return the condition variable struct
  */
-cond_type Thread_create_cond(void)
+cond_type Thread_create_cond(int *rc)
 {
 	cond_type condvar = NULL;
 	pthread_condattr_t attr;
-	int rc = 0;
 
 	FUNC_ENTRY;
+	*rc = -1;
 	pthread_condattr_init(&attr);
 
 #if 0
@@ -377,10 +381,13 @@ cond_type Thread_create_cond(void)
 #endif
 
 	condvar = malloc(sizeof(cond_type_struct));
-	rc = pthread_cond_init(&condvar->cond, &attr);
-	rc = pthread_mutex_init(&condvar->mutex, NULL);
+	if (condvar)
+	{
+		*rc = pthread_cond_init(&condvar->cond, &attr);
+		*rc = pthread_mutex_init(&condvar->mutex, NULL);
+	}
 
-	FUNC_EXIT_RC(rc);
+	FUNC_EXIT_RC(*rc);
 	return condvar;
 }
 
@@ -411,9 +418,16 @@ int Thread_wait_cond(cond_type condvar, int timeout)
 	struct timespec cond_timeout;
 
 	FUNC_ENTRY;
+#if defined(__APPLE__) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200 /* for older versions of MacOS */
+	struct timeval cur_time;
+    gettimeofday(&cur_time, NULL);
+    cond_timeout.tv_sec = cur_time.tv_sec + timeout;
+    cond_timeout.tv_nsec = cur_time.tv_usec * 1000;
+#else
 	clock_gettime(CLOCK_REALTIME, &cond_timeout);
 
 	cond_timeout.tv_sec += timeout;
+#endif
 	pthread_mutex_lock(&condvar->mutex);
 	rc = pthread_cond_timedwait(&condvar->cond, &condvar->mutex, &cond_timeout);
 	pthread_mutex_unlock(&condvar->mutex);
@@ -441,7 +455,7 @@ int Thread_destroy_cond(cond_type condvar)
 
 #if defined(THREAD_UNIT_TESTS)
 
-#if defined(WIN32) || defined(_WINDOWS)
+#if defined(_WIN32) || defined(_WINDOWS)
 #define mqsleep(A) Sleep(1000*A)
 #define START_TIME_TYPE DWORD
 static DWORD start_time = 0;
@@ -471,7 +485,7 @@ START_TIME_TYPE start_clock(void)
 #endif
 
 
-#if defined(WIN32)
+#if defined(_WIN32)
 long elapsed(START_TIME_TYPE start_time)
 {
 	return GetTickCount() - start_time;
@@ -548,14 +562,13 @@ int cond_test()
 {
 	int rc = 0;
 	cond_type cond = Thread_create_cond();
-	thread_type thread;
 
 	printf("Post secondary so it should return immediately\n");
 	rc = Thread_signal_cond(cond);
 	assert("rc 0 from signal cond", rc == 0, "rc was %d", rc);
 
 	printf("Starting secondary thread\n");
-	thread = Thread_start(cond_secondary, (void*)cond);
+	Thread_start(cond_secondary, (void*)cond);
 
 	sleep(3);
 
@@ -599,7 +612,6 @@ int sem_test()
 {
 	int rc = 0;
 	sem_type sem = Thread_create_sem();
-	thread_type thread;
 
 	printf("Primary semaphore pointer %p\n", sem);
 
@@ -614,7 +626,7 @@ int sem_test()
 	assert("rc 1 from check_sem", rc == 1, "rc was %d", rc);
 
 	printf("Starting secondary thread\n");
-	thread = Thread_start(sem_secondary, (void*)sem);
+	Thread_start(sem_secondary, (void*)sem);
 
 	sleep(3);
 	rc = Thread_check_sem(sem);

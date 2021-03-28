@@ -1,12 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2012, 2018 IBM Corp., and others
+ * Copyright (c) 2012, 2020 IBM Corp., and others
  *
  * All rights reserved. This program and the accompanying materials
- * are made available under the terms of the Eclipse Public License v1.0
+ * are made available under the terms of the Eclipse Public License v2.0
  * and Eclipse Distribution License v1.0 which accompany this distribution.
  *
  * The Eclipse Public License is available at
- *   http://www.eclipse.org/legal/epl-v10.html
+ *   https://www.eclipse.org/legal/epl-2.0/
  * and the Eclipse Distribution License is available at
  *   http://www.eclipse.org/org/documents/edl-v10.php.
  *
@@ -24,7 +24,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#if defined(WIN32)
+#if defined(_WIN32)
 #include <windows.h>
 #define sleep Sleep
 #else
@@ -45,8 +45,9 @@ struct pubsub_opts opts =
 	NULL, NULL, 1, 0, 0, /* message options */
 	MQTTVERSION_DEFAULT, NULL, "paho-c-pub", 0, 0, NULL, NULL, "localhost", "1883", NULL, 10, /* MQTT options */
 	NULL, NULL, 0, 0, /* will options */
-	0, NULL, NULL, NULL, NULL, NULL, NULL, /* TLS options */
+	0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, /* TLS options */
 	0, {NULL, NULL}, /* MQTT V5 options */
+	NULL, NULL, /* HTTP and HTTPS proxies */
 };
 
 MQTTAsync_responseOptions pub_opts = MQTTAsync_responseOptions_initializer;
@@ -56,7 +57,7 @@ MQTTProperties props = MQTTProperties_initializer;
 
 void mysleep(int ms)
 {
-	#if defined(WIN32)
+	#if defined(_WIN32)
 		Sleep(ms);
 	#else
 		usleep(ms * 1000);
@@ -222,6 +223,54 @@ static int onSSLError(const char *str, size_t len, void *context)
 	return fprintf(stderr, "SSL error: %s\n", str);
 }
 
+static unsigned int onPSKAuth(const char* hint,
+                              char* identity,
+                              unsigned int max_identity_len,
+                              unsigned char* psk,
+                              unsigned int max_psk_len,
+                              void* context)
+{
+	int psk_len;
+	int k, n;
+
+	int rc = 0;
+	struct pubsub_opts* opts = context;
+
+	/* printf("Trying TLS-PSK auth with hint: %s\n", hint);*/
+
+	if (opts->psk == NULL || opts->psk_identity == NULL)
+	{
+		/* printf("No PSK entered\n"); */
+		goto exit;
+	}
+
+	/* psk should be array of bytes. This is a quick and dirty way to
+	 * convert hex to bytes without input validation */
+	psk_len = (int)strlen(opts->psk) / 2;
+	if (psk_len > max_psk_len)
+	{
+		fprintf(stderr, "PSK too long\n");
+		goto exit;
+	}
+	for (k=0, n=0; k < psk_len; k++, n += 2)
+	{
+		sscanf(&opts->psk[n], "%2hhx", &psk[k]);
+	}
+
+	/* identity should be NULL terminated string */
+	strncpy(identity, opts->psk_identity, max_identity_len);
+	if (identity[max_identity_len - 1] != '\0')
+	{
+		fprintf(stderr, "Identity too long\n");
+		goto exit;
+	}
+
+	/* Function should return length of psk on success. */
+	rc = psk_len;
+
+exit:
+	return rc;
+}
 
 void myconnect(MQTTAsync client)
 {
@@ -252,6 +301,8 @@ void myconnect(MQTTAsync client)
 	conn_opts.MQTTVersion = opts.MQTTVersion;
 	conn_opts.context = client;
 	conn_opts.automaticReconnect = 1;
+	conn_opts.httpProxy = opts.http_proxy;
+	conn_opts.httpsProxy = opts.https_proxy;
 
 	if (opts.will_topic) 	/* will options */
 	{
@@ -277,6 +328,8 @@ void myconnect(MQTTAsync client)
 		ssl_opts.enabledCipherSuites = opts.ciphers;
 		ssl_opts.ssl_error_cb = onSSLError;
 		ssl_opts.ssl_error_context = client;
+		ssl_opts.ssl_psk_cb = onPSKAuth;
+		ssl_opts.ssl_psk_context = &opts;
 		conn_opts.ssl = &ssl_opts;
 	}
 
@@ -317,11 +370,12 @@ int main(int argc, char** argv)
 	MQTTAsync client;
 	char* buffer = NULL;
 	char* url = NULL;
+	int url_allocated = 0;
 	int rc = 0;
 	const char* version = NULL;
 	const char* program_name = "paho_c_pub";
 	MQTTAsync_nameValue* infos = MQTTAsync_getVersionInfo();
-#if !defined(WIN32)
+#if !defined(_WIN32)
     struct sigaction sa;
 #endif
 
@@ -336,6 +390,7 @@ int main(int argc, char** argv)
 	else
 	{
 		url = malloc(100);
+		url_allocated = 1;
 		sprintf(url, "%s:%s", opts.host, opts.port);
 	}
 	if (opts.verbose)
@@ -358,7 +413,7 @@ int main(int argc, char** argv)
 		exit(EXIT_FAILURE);
 	}
 
-#if defined(WIN32)
+#if defined(_WIN32)
 	signal(SIGINT, cfinish);
 	signal(SIGTERM, cfinish);
 #else
@@ -452,6 +507,9 @@ int main(int argc, char** argv)
 		mysleep(100);
 
 	MQTTAsync_destroy(&client);
+
+	if (url_allocated)
+		free(url);
 
 	return EXIT_SUCCESS;
 }
