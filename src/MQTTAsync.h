@@ -1928,7 +1928,7 @@ LIBMQTT_API const char* MQTTAsync_strerror(int code);
 #include <OsWrapper.h>
 #endif
 
-#define ADDRESS     "tcp://mqtt.eclipseprojects.io:1883"
+#define ADDRESS     "tcp://test.mosquitto.org:1883"
 #define CLIENTID    "ExampleClientPub"
 #define TOPIC       "MQTT Examples"
 #define PAYLOAD     "Hello World!"
@@ -2099,7 +2099,7 @@ int main(int argc, char* argv[])
 #include <OsWrapper.h>
 #endif
 
-#define ADDRESS     "tcp://mqtt.eclipseprojects.io:1883"
+#define ADDRESS     "tcp://test.mosquitto.org:1883"
 #define CLIENTID    "ExampleClientSub"
 #define TOPIC       "MQTT Examples"
 #define PAYLOAD     "Hello World!"
