@@ -33,7 +33,7 @@
  *
  * @brief An Asynchronous MQTT client library for C.
  *
- * Version 1.3.14
+ * Version 1.3.15
  *
  * An MQTT client application connects to MQTT-capable servers.
  * A typical client is responsible for collecting information from a telemetry
