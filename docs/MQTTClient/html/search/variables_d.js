@@ -8,5 +8,5 @@ var searchData=
   ['retained_5',['retained',['../struct_m_q_t_t_client__message.html#a6a4904c112507a43e7dc8495b62cc0fc',1,'MQTTClient_message::retained'],['../struct_m_q_t_t_client__will_options.html#a6a4904c112507a43e7dc8495b62cc0fc',1,'MQTTClient_willOptions::retained']]],
   ['retainhandling_6',['retainHandling',['../struct_m_q_t_t_subscribe__options.html#a11f17b62e40ecdfe107101ae164367a3',1,'MQTTSubscribe_options']]],
   ['retryinterval_7',['retryInterval',['../struct_m_q_t_t_client__connect_options.html#ac73f57846c42bcaa9a47e6721a957748',1,'MQTTClient_connectOptions']]],
-  ['returned_8',['returned',['../struct_m_q_t_t_client__connect_options.html#afbca347de18f7a8c57de1f16d3dadde6',1,'MQTTClient_connectOptions']]]
+  ['returned_8',['returned',['../struct_m_q_t_t_client__connect_options.html#af6bb7e7563af3a48e33f3905b3fe310e',1,'MQTTClient_connectOptions']]]
 ];

@@ -1,4 +1,4 @@
-.TH "MQTTClient.h" 3 "Tue Jan 7 2025 13:21:06" "Paho MQTT C Client Library" \" -*- nroff -*-
+.TH "MQTTClient.h" 3 "Sat Aug 16 2025 14:15:23" "Paho MQTT C Client Library" \" -*- nroff -*-
 .ad l
 .nh
 .SH NAME
@@ -337,11 +337,11 @@ Return code: protocol prefix in serverURI should be:
 .IP "\(bu" 1
 \fItcp://\fP or \fImqtt://\fP - Insecure TCP 
 .IP "\(bu" 1
-\fIssl://\fP or \fImqtts://\fP - Encrypted SSL/TLS 
+\fIssl://\fP or \fItls://\fP or \fImqtts://\fP - Encrypted SSL/TLS 
 .IP "\(bu" 1
 \fIws://\fP - Insecure websockets 
 .IP "\(bu" 1
-\fIwss://\fP - Secure web sockets The TLS enabled prefixes (ssl, mqtts, wss) are only valid if a TLS version of the library is linked with\&. 
+\fIwss://\fP - Secure web sockets The TLS enabled prefixes (ssl, tls, mqtts, wss) are only valid if a TLS version of the library is linked with\&. 
 .PP
 
 .SS "#define MQTTCLIENT_BAD_MQTT_OPTION   \-15"

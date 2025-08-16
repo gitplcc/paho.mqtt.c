@@ -1,4 +1,4 @@
-.TH "MQTTAsync.h" 3 "Tue Jan 7 2025 13:21:07" "Paho Asynchronous MQTT C Client Library" \" -*- nroff -*-
+.TH "MQTTAsync.h" 3 "Sat Aug 16 2025 14:15:23" "Paho Asynchronous MQTT C Client Library" \" -*- nroff -*-
 .ad l
 .nh
 .SH NAME
@@ -403,13 +403,13 @@ Return code: protocol prefix in serverURI should be:
 .IP "\(bu" 1
 \fItcp://\fP or \fImqtt://\fP - Insecure TCP 
 .IP "\(bu" 1
-\fIssl://\fP or \fImqtts://\fP - Encrypted SSL/TLS 
+\fIssl://\fP or \fItls://\fP or \fImqtts://\fP - Encrypted SSL/TLS 
 .IP "\(bu" 1
 \fIws://\fP - Insecure websockets 
 .IP "\(bu" 1
 \fIwss://\fP - Secure web sockets
 .PP
-The TLS enabled prefixes (ssl, mqtts, wss) are only valid if the TLS version of the library is linked with\&. 
+The TLS enabled prefixes (ssl, tls, mqtts, wss) are only valid if the TLS version of the library is linked with\&. 
 .SS "#define MQTTASYNC_BAD_MQTT_OPTION   \-15"
 Return code: don't use options for another version of MQTT 
 .SS "#define MQTTASYNC_WRONG_MQTT_VERSION   \-16"
